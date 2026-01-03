@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>長者運動教案資料庫 - 社區雲端版</title>
+    <title>長者運動教案資料庫 - 在地管理版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -50,11 +50,11 @@
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
                     <span class="bg-blue-600 text-white p-2 rounded-xl shadow-md">
-                        <i data-lucide="cloud-sun" size="24"></i>
+                        <i data-lucide="database" size="24"></i>
                     </span>
-                    社區運動教案雲端庫
+                    長者運動教案資料庫
                 </h1>
-                <p class="text-slate-500 mt-1 text-sm md:text-base">雲端即時同步 · 老師專用管理系統</p>
+                <p class="text-slate-500 mt-1 text-sm md:text-base">在地儲存版 · 無需雲端 · 永不消失</p>
             </div>
             <div class="hidden md:flex gap-3">
                 <button onclick="toggleCart()" class="relative bg-white border border-blue-200 text-blue-600 hover:bg-blue-50 px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm">
@@ -73,7 +73,7 @@
         <div class="bg-white p-4 md:p-5 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-col gap-4">
             <div class="relative">
                 <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size="20"></i>
-                <input type="text" id="searchInput" placeholder="搜尋影片名稱、類別 (如：氣功、口腔)..." oninput="filterVideos()" class="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-base">
+                <input type="text" id="searchInput" placeholder="搜尋名稱或分類 (如：氣功、大腦、伸展)..." oninput="filterVideos()" class="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-base">
             </div>
             <div class="scroll-hint">
                 <div class="flex overflow-x-auto gap-2 pb-2 no-scrollbar" id="categoryFilters"></div>
@@ -82,10 +82,7 @@
 
         <!-- 影片網格 -->
         <div id="videoGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-            <div class="col-span-full py-20 text-center text-slate-400">
-                <i data-lucide="loader-2" class="mx-auto mb-2 animate-spin" size="48"></i>
-                <p>正在同步雲端教案...</p>
-            </div>
+            <!-- 資料將在此渲染 -->
         </div>
     </div>
 
@@ -117,7 +114,7 @@
         </div>
         <div id="cartItems" class="flex-1 overflow-y-auto p-5 space-y-4"></div>
         <div class="p-5 border-t border-slate-100 space-y-4 bg-slate-50 safe-bottom">
-            <p class="text-xs text-slate-400 text-center">菜單會自動儲存在此瀏覽器</p>
+            <p class="text-xs text-slate-400 text-center">菜單與教案皆存於此裝置，重新整理不會消失</p>
             <textarea id="customMsg" rows="3" class="w-full p-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="給長輩的鼓勵話語..."></textarea>
             <button onclick="exportAssignment()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95">
                 <i data-lucide="share-2"></i>
@@ -177,92 +174,89 @@
         </div>
     </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'elderly-exercise-app';
+    <script>
+        // ---------------------------------------------------------
+        // 在地儲存邏輯 (LocalStorage)
+        // ---------------------------------------------------------
+        const VIDEO_STORAGE_KEY = 'elderly_exercise_videos_v2';
+        const CART_STORAGE_KEY = 'elderly_exercise_cart_v2';
 
         let allVideos = [];
+        let cart = [];
         let currentCategory = '全部';
-        let cart = JSON.parse(localStorage.getItem('elderly_exercise_cart') || '[]');
-        let unsubscribeSync = null;
 
         const categories = ['全部', '氣功功法', '室內散步', '健康操', '有氧運動', '高齡者專項', '伸展運動', '肌力運動', '大腦保健', '口腔吞嚥'];
 
-        // 預設 33 則影片資料
+        // 預設 33 則教案 (如果在地資料庫是空的，則載入這些)
         const seedData = [
-            { title: "平甩功-30分鐘", url: "https://youtu.be/RZRnXkDmhyk", category: "氣功功法" },
-            { title: "室內散步-20分鐘", url: "https://youtu.be/ShKiPXsNnak", category: "室內散步" },
-            { title: "室內散步-20分鐘", url: "https://youtu.be/2yBc-qPhF_M", category: "室內散步" },
-            { title: "室內散步-10分鐘", url: "https://youtu.be/0SRK8vquWjI", category: "室內散步" },
-            { title: "室內散步1000步-10分鐘", url: "https://youtu.be/z_yCQolzOfo", category: "室內散步" },
-            { title: "五行健康操-15分鐘", url: "https://youtu.be/RKB4NxhENyY", category: "健康操" },
-            { title: "十巧手健康操 - 瀟灑走一回-4分鐘", url: "https://youtu.be/YgFuMyozo2I", category: "健康操" },
-            { title: "手指曼波-3分鐘", url: "https://youtu.be/dsr0rF2r4Ww", category: "健康操" },
-            { title: "ＨＩＩＴ有氧運動-10分鐘", url: "https://youtu.be/IRO6OY64jp0", category: "有氧運動" },
-            { title: "八段錦-16分鐘", url: "https://youtu.be/cvlwcIiOrq0", category: "氣功功法" },
-            { title: "香功-15分鐘", url: "https://youtu.be/1b79K-RF1Vw", category: "氣功功法" },
-            { title: "活血功-40分鐘", url: "https://youtu.be/GJANLbCkYWw", category: "氣功功法" },
-            { title: "甩手功10式-11分鐘", url: "https://youtu.be/ze0LuL5-sKw", category: "氣功功法" },
-            { title: "拍打長命功-10分鐘", url: "https://youtu.be/XSyMomEGzvY", category: "氣功功法" },
-            { title: "坐式八段錦-21分鐘", url: "https://youtu.be/D-Y-o9HrB7k", category: "氣功功法" },
-            { title: "北市衛生局：高齡者有氧運動健康操", url: "https://youtu.be/7pIeSsndwbA", category: "有氧運動" },
-            { title: "北市衛生局：高齡者伸展運動健康操", url: "https://youtu.be/I5dOgCz8ms8", category: "伸展運動" },
-            { title: "北市衛生局：高齡者彈力帶運動", url: "https://youtu.be/ROwOcKEKd9Q", category: "肌力運動" },
-            { title: "高齡者健康操", url: "https://youtu.be/_w50TfdCmKU", category: "高齡者專項" },
-            { title: "第一套 跑步有氧", url: "http://youtu.be/FyWCq0erv5Y", category: "有氧運動" },
-            { title: "第二套 游泳有氧", url: "http://youtu.be/NmCpBUWtPCE", category: "有氧運動" },
-            { title: "第三套 武術有氧", url: "http://youtu.be/g2KCXhTMVdk", category: "有氧運動" },
-            { title: "第四套 太極有氧", url: "http://youtu.be/PAbEW2ZetfM", category: "有氧運動" },
-            { title: "第五套 肩帶運動", url: "http://youtu.be/_RlMkDgILM4", category: "肌力運動" },
-            { title: "第六套 核心運動", url: "http://youtu.be/hcBJKlfsG4I", category: "肌力運動" },
-            { title: "第七套 下肢運動", url: "http://youtu.be/K6JUMXvkPNQ", category: "肌力運動" },
-            { title: "第八套 肩帶伸展", url: "http://youtu.be/GKjDnTIeSW4", category: "伸展運動" },
-            { title: "第九套 核心伸展", url: "http://youtu.be/iisYN1qq_fk", category: "伸展運動" },
-            { title: "第十套 下肢伸展", url: "http://youtu.be/jJjpgNkSXcU", category: "伸展運動" },
-            { title: "呷百二_吞嚥健康操 台語版", url: "https://youtu.be/ZYgjKHwyA4g", category: "口腔吞嚥" },
-            { title: "益口銅身操", url: "https://youtu.be/qZ87nEuBR4E", category: "口腔吞嚥" },
-            { title: "《大腦保健體操》安芝儇動作示範", url: "https://youtu.be/RYvpqbo3FAw", category: "大腦保健" },
-            { title: "老歌律動 - 一支小雨傘", url: "https://youtu.be/XX9RjPxv3Mw", category: "健康操" }
+            { id: '1', title: "平甩功-30分鐘", url: "https://youtu.be/RZRnXkDmhyk", category: "氣功功法" },
+            { id: '2', title: "室內散步-20分鐘", url: "https://youtu.be/ShKiPXsNnak", category: "室內散步" },
+            { id: '3', title: "室內散步-20分鐘", url: "https://youtu.be/2yBc-qPhF_M", category: "室內散步" },
+            { id: '4', title: "室內散步-10分鐘", url: "https://youtu.be/0SRK8vquWjI", category: "室內散步" },
+            { id: '5', title: "室內散步1000步-10分鐘", url: "https://youtu.be/z_yCQolzOfo", category: "室內散步" },
+            { id: '6', title: "五行健康操-15分鐘", url: "https://youtu.be/RKB4NxhENyY", category: "健康操" },
+            { id: '7', title: "十巧手健康操 - 瀟灑走一回-4分鐘", url: "https://youtu.be/YgFuMyozo2I", category: "健康操" },
+            { id: '8', title: "手指曼波-3分鐘", url: "https://youtu.be/dsr0rF2r4Ww", category: "健康操" },
+            { id: '9', title: "ＨＩＩＴ有氧運動-10分鐘", url: "https://youtu.be/IRO6OY64jp0", category: "有氧運動" },
+            { id: '10', title: "八段錦-16分鐘", url: "https://youtu.be/cvlwcIiOrq0", category: "氣功功法" },
+            { id: '11', title: "香功-15分鐘", url: "https://youtu.be/1b79K-RF1Vw", category: "氣功功法" },
+            { id: '12', title: "活血功-40分鐘", url: "https://youtu.be/GJANLbCkYWw", category: "氣功功法" },
+            { id: '13', title: "甩手功10式-11分鐘", url: "https://youtu.be/ze0LuL5-sKw", category: "氣功功法" },
+            { id: '14', title: "拍打長命功-10分鐘", url: "https://youtu.be/XSyMomEGzvY", category: "氣功功法" },
+            { id: '15', title: "坐式八段錦-21分鐘", url: "https://youtu.be/D-Y-o9HrB7k", category: "氣功功法" },
+            { id: '16', title: "北市衛生局：高齡者有氧運動健康操", url: "https://youtu.be/7pIeSsndwbA", category: "有氧運動" },
+            { id: '17', title: "北市衛生局：高齡者伸展運動健康操", url: "https://youtu.be/I5dOgCz8ms8", category: "伸展運動" },
+            { id: '18', title: "北市衛生局：高齡者彈力帶運動", url: "https://youtu.be/ROwOcKEKd9Q", category: "肌力運動" },
+            { id: '19', title: "高齡者健康操", url: "https://youtu.be/_w50TfdCmKU", category: "高齡者專項" },
+            { id: '20', title: "第一套 跑步有氧", url: "http://youtu.be/FyWCq0erv5Y", category: "有氧運動" },
+            { id: '21', title: "第二套 游泳有氧", url: "http://youtu.be/NmCpBUWtPCE", category: "有氧運動" },
+            { id: '22', title: "第三套 武術有氧", url: "http://youtu.be/g2KCXhTMVdk", category: "有氧運動" },
+            { id: '23', title: "第四套 太極有氧", url: "http://youtu.be/PAbEW2ZetfM", category: "有氧運動" },
+            { id: '24', title: "第五套 肩帶運動", url: "http://youtu.be/_RlMkDgILM4", category: "肌力運動" },
+            { id: '25', title: "第六套 核心運動", url: "http://youtu.be/hcBJKlfsG4I", category: "肌力運動" },
+            { id: '26', title: "第七套 下肢運動", url: "http://youtu.be/K6JUMXvkPNQ", category: "肌力運動" },
+            { id: '27', title: "第八套 肩帶伸展", url: "http://youtu.be/GKjDnTIeSW4", category: "伸展運動" },
+            { id: '28', title: "核心伸展", url: "http://youtu.be/iisYN1qq_fk", category: "伸展運動" },
+            { id: '29', title: "下肢伸展", url: "http://youtu.be/jJjpgNkSXcU", category: "伸展運動" },
+            { id: '30', title: "呷百二_吞嚥健康操 台語版", url: "https://youtu.be/ZYgjKHwyA4g", category: "口腔吞嚥" },
+            { id: '31', title: "益口銅身操", url: "https://youtu.be/qZ87nEuBR4E", category: "口腔吞嚥" },
+            { id: '32', title: "大腦保健體操-安芝儇動作示範", url: "https://youtu.be/RYvpqbo3FAw", category: "大腦保健" },
+            { id: '33', title: "老歌律動-一支小雨傘", url: "https://youtu.be/XX9RjPxv3Mw", category: "健康操" }
         ];
 
-        async function startApp() {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-                onAuthStateChanged(auth, (user) => { if (user) syncVideos(); });
-                renderCategoryBtns();
-                updateCartUI();
-                lucide.createIcons();
-            } catch (error) { console.error("Auth Error:", error); }
+        // --- 初始化資料 ---
+        function initApp() {
+            // 讀取教案
+            const storedVideos = localStorage.getItem(VIDEO_STORAGE_KEY);
+            if (storedVideos) {
+                allVideos = JSON.parse(storedVideos);
+            } else {
+                allVideos = seedData;
+                saveVideos();
+            }
+
+            // 讀取菜單
+            const storedCart = localStorage.getItem(CART_STORAGE_KEY);
+            if (storedCart) {
+                cart = JSON.parse(storedCart);
+            }
+
+            renderCategoryBtns();
+            filterVideos();
+            updateCartUI();
+            lucide.createIcons();
         }
 
-        function syncVideos() {
-            const videoCol = collection(db, 'artifacts', appId, 'public', 'data', 'videos');
-            unsubscribeSync = onSnapshot(videoCol, async (snapshot) => {
-                if (snapshot.empty) {
-                    // 如果雲端為空，自動注入種子資料
-                    for (const [index, item] of seedData.entries()) {
-                        const newDoc = doc(videoCol);
-                        await setDoc(newDoc, { ...item, id: newDoc.id, createdAt: Date.now() - (index * 1000) });
-                    }
-                    return;
-                }
-                allVideos = snapshot.docs.map(doc => doc.data()).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
-                filterVideos();
-            }, (error) => { console.error("Sync Error:", error); });
+        function saveVideos() {
+            localStorage.setItem(VIDEO_STORAGE_KEY, JSON.stringify(allVideos));
         }
 
-        window.renderCategoryBtns = function() {
+        function saveCart() {
+            localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+        }
+
+        // --- UI 渲染邏輯 ---
+        function renderCategoryBtns() {
             const container = document.getElementById('categoryFilters');
             container.innerHTML = categories.map(cat => `
                 <button onclick="filterCategory('${cat}')" 
@@ -271,9 +265,25 @@
                     ${cat}
                 </button>
             `).join('');
-        };
+        }
 
-        window.renderVideos = function(videoList) {
+        function filterCategory(cat) {
+            currentCategory = cat;
+            renderCategoryBtns();
+            filterVideos();
+        }
+
+        function filterVideos() {
+            const term = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = allVideos.filter(v => {
+                const mSearch = v.title.toLowerCase().includes(term) || v.category.toLowerCase().includes(term);
+                const mCat = currentCategory === '全部' || v.category === currentCategory;
+                return mSearch && mCat;
+            });
+            renderVideos(filtered);
+        }
+
+        function renderVideos(videoList) {
             const grid = document.getElementById('videoGrid');
             if (videoList.length === 0) {
                 grid.innerHTML = `<div class="col-span-full py-20 text-center text-slate-400">找不到符合的教案</div>`;
@@ -284,13 +294,13 @@
                 const thumb = yId ? `https://img.youtube.com/vi/${yId}/mqdefault.jpg` : '';
                 const isInCart = cart.some(item => item.id === v.id);
                 return `
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden relative group">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden relative group hover:shadow-md transition-shadow">
                     <div class="relative cursor-pointer aspect-video" onclick="openPreview('${v.title}', '${v.url}')">
                         <img src="${thumb}" alt="${v.title}" class="w-full h-full object-cover">
                         <div class="absolute inset-0 bg-black/10 flex items-center justify-center">
                             <i data-lucide="play" class="text-white drop-shadow-md" size="40"></i>
                         </div>
-                        <span class="absolute top-2 left-2 bg-blue-600/90 text-white px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                        <span class="absolute top-2 left-2 bg-blue-600/90 text-white px-2 py-0.5 rounded-lg text-[10px] font-bold shadow-sm">
                             ${v.category}
                         </span>
                     </div>
@@ -304,42 +314,36 @@
                                 ${isInCart ? '已在菜單' : '加作業'}
                             </button>
                             <div class="flex gap-1">
-                                <button onclick="copySingleLink('${v.url}')" class="p-2 text-slate-400 hover:text-blue-600"><i data-lucide="copy" size="18"></i></button>
-                                <button onclick="openEditModal('${v.id}')" class="p-2 text-slate-400 hover:text-blue-600"><i data-lucide="edit-3" size="18"></i></button>
-                                <button onclick="deleteVideo('${v.id}')" class="p-2 text-slate-400 hover:text-red-500"><i data-lucide="trash-2" size="18"></i></button>
+                                <button onclick="copySingleLink('${v.url}')" title="複製連結" class="p-2 text-slate-400 hover:text-blue-600"><i data-lucide="copy" size="18"></i></button>
+                                <button onclick="openEditModal('${v.id}')" title="編輯" class="p-2 text-slate-400 hover:text-blue-600"><i data-lucide="edit-3" size="18"></i></button>
+                                <button onclick="deleteVideo('${v.id}')" title="刪除" class="p-2 text-slate-400 hover:text-red-500"><i data-lucide="trash-2" size="18"></i></button>
                             </div>
                         </div>
                     </div>
                 </div>`;
             }).join('');
             lucide.createIcons();
-        };
+        }
 
-        window.getYoutubeId = (url) => {
+        // --- 核心功能邏輯 ---
+        function getYoutubeId(url) {
             const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
             const match = url.match(regExp);
             return (match && match[2].length === 11) ? match[2] : null;
-        };
+        }
 
-        window.filterCategory = (cat) => { currentCategory = cat; renderCategoryBtns(); filterVideos(); };
-        window.filterVideos = () => {
-            const term = document.getElementById('searchInput').value.toLowerCase();
-            const filtered = allVideos.filter(v => {
-                const mSearch = v.title.toLowerCase().includes(term) || v.category.toLowerCase().includes(term);
-                const mCat = currentCategory === '全部' || v.category === currentCategory;
-                return mSearch && mCat;
-            });
-            renderVideos(filtered);
-        };
-
-        window.addToCart = (id) => {
+        function addToCart(id) {
             const video = allVideos.find(v => v.id === id);
             const index = cart.findIndex(item => item.id === id);
-            if (index === -1) cart.push(video); else cart.splice(index, 1);
-            localStorage.setItem('elderly_exercise_cart', JSON.stringify(cart));
+            if (index === -1) {
+                cart.push(video);
+            } else {
+                cart.splice(index, 1);
+            }
+            saveCart();
             updateCartUI();
             filterVideos();
-        };
+        }
 
         function updateCartUI() {
             const count = cart.length;
@@ -358,67 +362,123 @@
             lucide.createIcons();
         }
 
-        window.copySingleLink = (url) => { copyToClipboard(url, "連結已複製！"); };
-        window.exportAssignment = async () => {
-            if (cart.length === 0) return alert("菜單是空的！");
-            const msg = document.getElementById('customMsg').value;
-            const listText = cart.map((v, i) => `${i+1}. ${v.title}\n🔗 ${v.url}`).join('\n\n');
-            const fullContent = `🌟 今日運動作業 🌟\n\n${msg || '記得每天動動身體喔！'}\n\n內容：\n${listText}\n\n加油 ❤️`;
-            if (navigator.share) { try { await navigator.share({ text: fullContent }); } catch (e) { copyToClipboard(fullContent, "作業已複製！"); } }
-            else { copyToClipboard(fullContent, "作業已複製！"); }
-        };
-
-        function copyToClipboard(text, successMsg) {
-            const el = document.createElement('textarea'); el.value = text; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
-            const toast = document.createElement('div'); toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl z-[100] text-sm font-bold animate-bounce';
-            toast.innerText = successMsg; document.body.appendChild(toast); setTimeout(() => toast.remove(), 2000);
-        }
-
-        window.saveVideo = async () => {
+        function saveVideo() {
             const title = document.getElementById('newTitle').value.trim();
             const url = document.getElementById('newUrl').value.trim();
             const category = document.getElementById('newCategory').value;
             const editId = document.getElementById('editId').value;
-            if (!title || !url) return alert("請完整填寫");
-            const videoCol = collection(db, 'artifacts', appId, 'public', 'data', 'videos');
-            const targetDoc = editId ? doc(videoCol, editId) : doc(videoCol);
-            try {
-                await setDoc(targetDoc, { id: targetDoc.id, title, url, category, createdAt: Date.now() }, { merge: true });
-                closeModal();
-            } catch (error) { alert("儲存失敗"); }
-        };
 
-        window.deleteVideo = async (id) => {
-            if (!confirm("確定要刪除嗎？這會同步影響所有人。")) return;
-            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videos', id)); } catch (e) {}
-        };
+            if (!title || !url) return alert("請填寫標題與連結");
 
-        window.openEditModal = (id) => {
+            if (editId) {
+                // 編輯現有教案
+                const index = allVideos.findIndex(v => v.id === editId);
+                if (index !== -1) {
+                    allVideos[index] = { ...allVideos[index], title, url, category };
+                }
+            } else {
+                // 新增教案
+                const newVideo = {
+                    id: Date.now().toString(),
+                    title,
+                    url,
+                    category,
+                    createdAt: Date.now()
+                };
+                allVideos.unshift(newVideo);
+            }
+
+            saveVideos();
+            closeModal();
+            filterVideos();
+        }
+
+        function deleteVideo(id) {
+            if (!confirm("確定要刪除這個教案嗎？")) return;
+            allVideos = allVideos.filter(v => v.id !== id);
+            cart = cart.filter(item => item.id !== id); // 同步移除菜單內容
+            saveVideos();
+            saveCart();
+            filterVideos();
+            updateCartUI();
+        }
+
+        function openEditModal(id) {
             const v = allVideos.find(i => i.id === id);
-            document.getElementById('modalTitle').innerText = "編輯教案";
+            document.getElementById('modalTitle').innerText = "編輯教案內容";
             document.getElementById('editId').value = v.id;
             document.getElementById('newTitle').value = v.title;
             document.getElementById('newUrl').value = v.url;
             document.getElementById('newCategory').value = v.category;
             openModal();
-        };
+        }
 
-        window.openModal = () => { document.getElementById('videoModal').style.display = 'flex'; };
-        window.closeModal = () => { document.getElementById('videoModal').style.display = 'none'; document.getElementById('editId').value = ''; };
-        window.toggleCart = () => { document.getElementById('cartSidebar').classList.toggle('translate-x-full'); };
-        window.openPreview = (title, url) => {
-            const yId = getYoutubeId(url); if (!yId) return;
+        function openModal() {
+            if (!document.getElementById('editId').value) {
+                document.getElementById('modalTitle').innerText = "新增教案";
+            }
+            document.getElementById('videoModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('videoModal').style.display = 'none';
+            document.getElementById('editId').value = '';
+            document.getElementById('newTitle').value = '';
+            document.getElementById('newUrl').value = '';
+        }
+
+        function toggleCart() {
+            document.getElementById('cartSidebar').classList.toggle('translate-x-full');
+        }
+
+        function openPreview(title, url) {
+            const yId = getYoutubeId(url);
+            if (!yId) return;
             document.getElementById('previewTitle').innerText = title;
             document.getElementById('previewVideoContainer').innerHTML = `<iframe src="https://www.youtube.com/embed/${yId}?autoplay=1" frameborder="0" allowfullscreen></iframe>`;
             document.getElementById('previewModal').style.display = 'flex';
-        };
-        window.closePreview = () => { document.getElementById('previewVideoContainer').innerHTML = ''; document.getElementById('previewModal').style.display = 'none'; };
+        }
+
+        function closePreview() {
+            document.getElementById('previewVideoContainer').innerHTML = '';
+            document.getElementById('previewModal').style.display = 'none';
+        }
+
+        function copySingleLink(url) {
+            copyToClipboard(url, "連結已複製！");
+        }
+
+        function exportAssignment() {
+            if (cart.length === 0) return alert("菜單是空的喔！");
+            const msg = document.getElementById('customMsg').value;
+            const listText = cart.map((v, i) => `${i+1}. ${v.title}\n🔗 ${v.url}`).join('\n\n');
+            const fullContent = `🌟 今日運動作業 🌟\n\n${msg || '記得每天動動身體喔！'}\n\n內容：\n${listText}\n\n加油！身體健康，萬事如意 ❤️`;
+            
+            copyToClipboard(fullContent, "作業已複製！請貼到 Line 傳送。");
+        }
+
+        function copyToClipboard(text, successMsg) {
+            const el = document.createElement('textarea');
+            el.value = text;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand('copy');
+            document.body.removeChild(el);
+            
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl z-[100] text-sm font-bold animate-bounce';
+            toast.innerText = successMsg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+
         window.onclick = e => {
             if (e.target == document.getElementById('videoModal')) closeModal();
             if (e.target == document.getElementById('previewModal')) closePreview();
-        };
+        }
 
-        startApp();
+        // 啟動應用
+        window.onload = initApp;
     </script>
 </body>
 </html>
